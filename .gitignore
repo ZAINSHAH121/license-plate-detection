@@ -1,0 +1,16 @@
+# Python cache
+__pycache__/
+*.pyc
+
+yoloenv/
+env/
+venv/
+
+weights/
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS specific
+.DS_Store
+Thumbs.db
