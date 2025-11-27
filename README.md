@@ -22,7 +22,7 @@ This project detects vehicle license plates using **YOLOv8**, performs OCR using
 ---
 
 ## 📂 Project Structure
-icense-plate-detection/
+License-plate-detection/
 │
 ├── main.py
 │
