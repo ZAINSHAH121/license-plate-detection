@@ -1,78 +1,86 @@
 import cv2
+import numpy as np
 class MediaProcessor:
-    def __init__(self, detector):
+    def __init__(self, detector, img_processor):
         self.detector = detector
+        self.imgproc = img_processor
 
     def process(self, source):
         if source.lower().endswith((".jpg", ".jpeg", ".png")):
             self._process_image(source)
-        elif source.lower().endswith((".mp4", ".avi", ".mov", ".mkv")):
+        elif source.lower().endswith((".mp4", ".avi", ".mkv")):
             self._process_video(source)
         else:
             raise ValueError("Unsupported file type!")
 
+    # -------------------- IMAGE HANDLING --------------------
     def _process_image(self, path):
         img = cv2.imread(path)
-        annotated = img.copy()
         boxes = self.detector.detect(img)
-        crops = []
 
-        if boxes and boxes.xyxy is not None:
-            for box in boxes.xyxy.cpu().numpy():
-                x1, y1, x2, y2 = map(int, box[:4])
-                crop = img[y1:y2, x1:x2]
-                crops.append(crop)
-                text = self.detector.run_ocr(crop)
-                cv2.putText(annotated, text, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0,255,0), 2)
-                print("Detected Plate:", text)
+        annotated, crops = self.imgproc.annotate_and_crop(
+            img,
+            boxes,
+            self.detector.run_ocr
+        )
 
-        right_window = None
-        if crops:
-            resized_crops = []
-            h = annotated.shape[0]
-            for c in crops:
-                scale = h / c.shape[0]
-                w = int(c.shape[1] * scale)
-                resized = cv2.resize(c, (w, h))
-                text = self.detector.run_ocr(c)
-                cv2.putText(resized, text, (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-                resized_crops.append(resized)
-            right_window = cv2.hconcat(resized_crops)
+        # Resize for display
+        annotated = self.imgproc.resize_for_screen(annotated)
 
-        # Concatenate left + right (if any)
-        side_by_side = cv2.hconcat([annotated, right_window]) if right_window is not None else annotated
-        side_by_side = self._resize_for_screen(side_by_side)
-        cv2.imshow("License Plate Detection", side_by_side)
+        # If crop exists
+        crop_window = None
+        if len(crops) > 0:
+            crop, text = crops[0]
+            crop = self.imgproc.resize_for_screen(crop)
+            cv2.putText(crop, text, (5, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            crop_window = crop
+
+        # Build one display frame (side by side WITHOUT concatenation)
+        display = self._make_side_by_side_canvas(annotated, crop_window)
+
+        cv2.imshow("License Plate Result", display)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
+    # Canvas Layout
+    def _make_side_by_side_canvas(self, left_img, right_img):
+        h = max(left_img.shape[0], right_img.shape[0] if right_img is not None else 0)
+        w = left_img.shape[1] + (right_img.shape[1] if right_img is not None else 0)
+
+        canvas = 255 * np.ones((h, w, 3), dtype=np.uint8)
+
+        # place left side
+        canvas[0:left_img.shape[0], 0:left_img.shape[1]] = left_img
+
+        # place right side
+        if right_img is not None:
+            canvas[0:right_img.shape[0], left_img.shape[1]:left_img.shape[1]+right_img.shape[1]] = right_img
+
+        return canvas
+
+    # -------------------- VIDEO HANDLING --------------------
     def _process_video(self, path):
         cap = cv2.VideoCapture(path)
+
         while True:
-            ret, frame = cap.read()
-            if not ret:
+            ok, frame = cap.read()
+            if not ok:
                 break
-            annotated = frame.copy()
+
             boxes = self.detector.detect(frame)
 
-            if boxes and boxes.xyxy is not None:
-                for box in boxes.xyxy.cpu().numpy():
-                    x1, y1, x2, y2 = map(int, box[:4])
-                    text = self.detector.run_ocr(frame[y1:y2, x1:x2])
-                    cv2.putText(annotated, text, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
-                    cv2.rectangle(annotated, (x1, y1), (x2, y2), (0,255,0), 2)
-                    print("Detected Plate:", text)
+            annotated, _ = self.imgproc.annotate_and_crop(
+                frame,
+                boxes,
+                self.detector.run_ocr
+            )
 
-            annotated = self._resize_for_screen(annotated)
-            cv2.imshow("Video - License Plate Detection", annotated)
+            annotated = self.imgproc.resize_for_screen(annotated)
+            cv2.imshow("License Plate Video", annotated)
+
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
         cap.release()
         cv2.destroyAllWindows()
-
-    def _resize_for_screen(self, img, max_width=1600, max_height=1000):
-        h, w = img.shape[:2]
-        scale = min(max_width / w, max_height / h, 1)
-        return cv2.resize(img, (int(w*scale), int(h*scale))) if scale < 1 else img

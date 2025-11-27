@@ -7,7 +7,7 @@ env/
 venv/
 
 weights/
-*.
+
 *.mp4
 *.jpg
 # Jupyter notebooks checkpoints
